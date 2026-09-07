@@ -7,11 +7,11 @@ belong in `deploy/`; this page records the currently reviewed facts.
 
 ## Current release
 
-Last reviewed: **2026-09-05 (Europe/London)**
+Last reviewed: **2026-09-07 (Europe/London)**
 
 | Item | Current value |
 |---|---|
-| Product version | `0.2.17` (published 2026-09-05; OPC remains on the separately pinned local chunk-recovery image) |
+| Product version | `0.2.17` (published 2026-09-05 and promoted to OPC on 2026-09-07) |
 | GitHub repository | `immortal-autumn/ExAPI` |
 | Git tag | `v0.2.17` |
 | Main branch | `main` (currently `f79ef301b`; release branch remains separate) |
@@ -39,7 +39,7 @@ generation, SLSA provenance, and SBOM attestations. The GitHub release is
 published (not a draft or prerelease) at
 <https://github.com/immortal-autumn/ExAPI/releases/tag/v0.2.17>.
 
-The signed GHCR manifest is pinned at
+The attested GHCR manifest is pinned at
 `ghcr.io/immortal-autumn/sub2api2personal@sha256:0866123190924731bc7f7294d5e3c958428e0b84c58da0da13caa80c491ba0e1`.
 Its Linux amd64 and arm64 manifests are respectively
 `sha256:4d45913c2f236f248a7cc0e633686e8df43f6091dcccacef10a379c6f9cb80a3`
@@ -49,16 +49,16 @@ The release SBOM asset `image.spdx.json` has SHA-256
 labels report version `0.2.17` and the reviewed commit above. The immutable
 digest is the production reference; the version tag is only a discovery alias.
 
-OPC still runs the separately built local chunk-recovery image documented below.
-That image has a different digest and version string, so publishing v0.2.17 does
-not silently change OPC or make the local image equivalent to the signed GHCR
-artifact. Promote it only through the normal digest-pinned deployment procedure.
+On 2026-09-07, OPC was promoted to this exact attested digest through the
+application-only procedure documented below. The former local chunk-recovery
+image remains retained as the immediate rollback target; it is not presented as
+equivalent to this attested GHCR artifact.
 
 The v0.2.16 release artifact remains pinned to its original immutable digest
 `sha256:d3b889b74dcd15c9952b409ce27f05db1898f93541eac17cf7675088d6af65b0`;
 its OCI labels match version `0.2.16` and reviewed commit
 `9c14b10843b175dac8ef0546866a141504bcaed4`. The v0.2.15 release remains
-available as the preceding reviewed deployment. The prior v0.2.8 tag
+available as an earlier reviewed deployment. The prior v0.2.8 tag
 remains immutable but was never published because its commit still contained
 `backend/cmd/server/VERSION=0.2.7`; it must not be retagged.
 
@@ -72,10 +72,60 @@ inline, and explains that a redacted existing key cannot be recovered and must
 be replaced. The release workflow (run `33756324283`) passed; frontend tests
 (267 files, 1,438 tests), typecheck, lint, and production build passed.
 
-The exact application image promoted to OPC is pinned at
+The application image previously promoted to OPC is pinned at
 `ghcr.io/immortal-autumn/sub2api2personal@sha256:d3b889b74dcd15c9952b409ce27f05db1898f93541eac17cf7675088d6af65b0`.
 Its OCI labels report version `0.2.16` and revision
 `9c14b10843b175dac8ef0546866a141504bcaed4`.
+
+## v0.2.17 OPC production promotion (2026-09-07)
+
+OPC production at `/opt/sub2api` was promoted to the reviewed, attested image
+`ghcr.io/immortal-autumn/sub2api2personal@sha256:0866123190924731bc7f7294d5e3c958428e0b84c58da0da13caa80c491ba0e1`.
+The protected versioned inputs are
+`/opt/sub2api/docker-compose.v0.2.17.yml` and
+`/opt/sub2api/.env.v0.2.17`; the latter differs from the retained chunk-fix
+environment only in the pinned application-image reference. The candidate
+Compose configuration was validated before cutover. No database migration,
+schema, keyring, or dependency configuration changed from the preceding
+chunk-fix deployment.
+
+Only the application service was recreated:
+
+```bash
+sudo docker compose -p sub2api \
+  --env-file /opt/sub2api/.env.v0.2.17 \
+  -f /opt/sub2api/docker-compose.v0.2.17.yml \
+  up -d --no-deps sub2api
+```
+
+PostgreSQL and Redis were not recreated. After promotion, `sub2api`,
+`sub2api-postgres`, and `sub2api-redis` were all healthy with zero restarts;
+the application readiness endpoint returned `{"status":"ready"}`. From the
+approved WireGuard control peer, `/`, `/admin`, `/admin/dashboard`, and an
+arbitrary SPA route all returned `200 text/html`; a deliberately missing asset
+returned `404 text/plain`, rather than the SPA HTML fallback; and
+`/api/v1/admin/cockpit-summary` returned a successful envelope with an object
+payload. The public listener intentionally does not expose control-plane
+routes, so those checks were made through the WireGuard control listener.
+
+The same control SPA and cockpit API checks were repeated 12 times at
+10-second intervals (about two minutes). Every check passed and all three
+containers remained healthy with zero restarts. The served JavaScript bundle
+also contains no `window.location.reload()` stale-chunk recovery loop.
+
+For an immediate application-only rollback, retain the dependencies and run:
+
+```bash
+sudo docker compose -p sub2api \
+  --env-file /opt/sub2api/.env.v0.2.16-chunkfix-7560df6cc \
+  -f /opt/sub2api/docker-compose.v0.2.16.yml \
+  up -d --no-deps sub2api
+```
+
+This restores the retained local recovery image
+`exapi-chunkfix@sha256:3d4a3377a690df44d5de18ba93dc8077d1e65bc2fa05fb28e0d868f6f4879875`
+at version `0.2.16-chunkfix` and revision `7560df6cc`; it does not recreate
+PostgreSQL or Redis.
 
 ## v0.2.11 release validation outcome
 
@@ -326,13 +376,13 @@ in the v0.2.17 release image. GitHub CI run `33607824144` and Security Scan run
 Before the 2026-09-05 chunk-load recovery deployment, production was deployed as
 Compose project `sub2api` from
 `/opt/sub2api` using `/opt/sub2api/.env.v0.2.16` and
-`/opt/sub2api/docker-compose.v0.2.16.yml`. The application container is pinned
+`/opt/sub2api/docker-compose.v0.2.16.yml`. The application container was pinned
 to manifest digest
 `sha256:d3b889b74dcd15c9952b409ce27f05db1898f93541eac17cf7675088d6af65b0`,
 reports `0.2.16`, and has revision
-`9c14b10843b175dac8ef0546866a141504bcaed4`. PostgreSQL and Redis remain on
-their existing persistent volumes; all three production services are healthy
-with zero restarts and `/ready` returns `{"status":"ready"}`.
+`9c14b10843b175dac8ef0546866a141504bcaed4`. PostgreSQL and Redis remained on
+their existing persistent volumes; all three production services were healthy
+with zero restarts and `/ready` returned `{"status":"ready"}`.
 
 The allowlisted WireGuard operator peer reached `/api/v1/operator/me` and the
 private `/api/v1/keys` route successfully. A real API-key creation check
@@ -341,33 +391,35 @@ deleted through `DELETE /api/v1/keys/:id`; the production list no longer
 contains the `ui-canary-key` probe record. The retained account and production
 key records were not otherwise changed.
 
-## 2026-09-05 OPC chunk-load recovery deployment
+## 2026-09-05 OPC chunk-load recovery deployment (historical predecessor)
 
 The application service was safely recreated with `--no-deps` from the
 committed fix `7560df6cc` (`fix(web): prevent stale chunks from triggering reload loops`).
-PostgreSQL and Redis were not recreated and remain healthy with zero restarts.
-The running application is pinned to the local immutable image reference
+PostgreSQL and Redis were not recreated and remained healthy with zero restarts.
+At that time, the running application was pinned to the local immutable image reference
 `exapi-chunkfix@sha256:3d4a3377a690df44d5de18ba93dc8077d1e65bc2fa05fb28e0d868f6f4879875`,
 with OCI revision `7560df6cc` and version `0.2.16-chunkfix`. Its protected Compose
-environment is `/opt/sub2api/.env.v0.2.16-chunkfix-7560df6cc` (mode `0600`); the
-original v0.2.16 environment is retained unchanged for rollback.
+environment is `/opt/sub2api/.env.v0.2.16-chunkfix-7560df6cc` (mode `0600`).
+It is now retained as the immediate application-only rollback target for the
+v0.2.17 production promotion.
 
 Post-deployment checks from the allowlisted operator path returned
 `/ready={"status":"ready"}`, SPA routes returned `200 text/html`, and a missing
 fingerprinted asset returned `404 text/plain` with `Asset not found` instead of
 `index.html`. The served application bundle no longer contains the old
-`window.location.reload()` chunk-recovery path. This remains a locally built,
-immutable-digest OPC recovery deployment; it is not the signed v0.2.17 GHCR
-artifact above, which has a different digest and version string. Publishing
-v0.2.17 therefore did not silently replace this OPC container; use the
-digest-pinned deployment procedure before promoting the release image.
+`window.location.reload()` chunk-recovery path. This was a locally built,
+immutable-digest recovery deployment, with a different digest and version
+string from the attested v0.2.17 GHCR artifact. It was superseded by the
+digest-pinned v0.2.17 application promotion on 2026-09-07 and remains available
+only as its immediate rollback target.
 
 To roll back only the application while leaving the dependencies untouched,
 restore the original environment file and run the versioned Compose file with
 `--no-deps`:
 
 ```bash
-sudo docker compose --env-file /opt/sub2api/.env.v0.2.16 \
+sudo docker compose -p sub2api \
+  --env-file /opt/sub2api/.env.v0.2.16-chunkfix-7560df6cc \
   -f /opt/sub2api/docker-compose.v0.2.16.yml up -d --no-deps sub2api
 ```
 

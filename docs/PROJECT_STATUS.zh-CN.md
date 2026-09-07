@@ -6,11 +6,11 @@
 
 ## 当前发布
 
-最后审阅：**2026-09-05（Europe/London）**
+最后审阅：**2026-09-07（Europe/London）**
 
 | 项目 | 当前值 |
 |---|---|
-| 产品版本 | `0.2.17`（2026-09-05 已发布；OPC 仍使用单独固定的本地 chunk 恢复镜像） |
+| 产品版本 | `0.2.17`（2026-09-05 已发布，2026-09-07 已 promotion 到 OPC） |
 | GitHub 仓库 | `immortal-autumn/ExAPI` |
 | Git tag | `v0.2.17` |
 | 主分支 | `main`（当前为 `f79ef301b`；发布分支保持独立） |
@@ -22,7 +22,7 @@
 
 v0.2.16 artifact 仍固定使用其原始 immutable digest
 `sha256:d3b889b74dcd15c9952b409ce27f05db1898f93541eac17cf7675088d6af65b0`，OCI 标签与版本 `0.2.16` 及审阅提交
-`9c14b10843b175dac8ef0546866a141504bcaed4` 一致。v0.2.15 作为前一个已审阅部署版本保留；
+`9c14b10843b175dac8ef0546866a141504bcaed4` 一致。v0.2.15 作为较早的已审阅部署版本保留；
 生产环境只使用 immutable digest，不使用 `latest` 等可变标签。GHCR 包名仍保留
 `sub2api2personal` 以兼容现有部署。
 
@@ -36,7 +36,7 @@ v0.2.16 artifact 仍固定使用其原始 immutable digest
 GitHub Release 已正式发布（不是 draft 或 prerelease）：
 <https://github.com/immortal-autumn/ExAPI/releases/tag/v0.2.17>。
 
-签名 GHCR manifest 固定为
+经验证的 GHCR manifest 固定为
 `ghcr.io/immortal-autumn/sub2api2personal@sha256:0866123190924731bc7f7294d5e3c958428e0b84c58da0da13caa80c491ba0e1`。
 Linux amd64 和 arm64 manifest 分别为
 `sha256:4d45913c2f236f248a7cc0e633686e8df43f6091dcccacef10a379c6f9cb80a3`
@@ -46,9 +46,8 @@ Release 中 `image.spdx.json` 的 SHA-256 为
 标签报告版本 `0.2.17` 和上述审阅提交。生产部署应使用 immutable digest；版本
 标签仅作为发现别名。
 
-OPC 仍运行下文记录的单独构建本地 chunk 恢复镜像。该镜像的 digest 和版本字符串
-不同，因此发布 v0.2.17 不会静默替换 OPC，也不代表本地镜像等同于签名 GHCR
-artifact。只有经过标准的 digest 固定部署流程后，才可 promotion 该 release 镜像。
+OPC 已于 2026-09-07 按下文的仅应用服务流程 promotion 到该精确经验证的 digest。此前的
+本地 chunk 恢复镜像保留为即时回滚目标，但不等同于该 GHCR artifact。
 
 ## v0.2.16 API Key 易用性发布
 
@@ -58,32 +57,76 @@ v0.2.16 从提交 `9c14b10843b175dac8ef0546866a141504bcaed4` 打 tag。中英文
 `33756324283`）通过；前端测试（267 个文件、1,438 个测试）、类型检查、lint 和生产构建
 均通过。
 
-部署到 OPC 的精确应用镜像固定为
+此前部署到 OPC 的精确应用镜像固定为
 `ghcr.io/immortal-autumn/sub2api2personal@sha256:d3b889b74dcd15c9952b409ce27f05db1898f93541eac17cf7675088d6af65b0`，
 OCI 标签报告版本 `0.2.16` 和 revision `9c14b10843b175dac8ef0546866a141504bcaed4`。
 
-## 2026-09-05 OPC chunk 加载恢复部署
+## v0.2.17 OPC 生产 Promotion（2026-09-07）
+
+`/opt/sub2api` 下的 OPC 生产环境已 promotion 到审阅通过且经验证的镜像：
+`ghcr.io/immortal-autumn/sub2api2personal@sha256:0866123190924731bc7f7294d5e3c958428e0b84c58da0da13caa80c491ba0e1`。
+受保护的版本化输入为 `/opt/sub2api/docker-compose.v0.2.17.yml` 和
+`/opt/sub2api/.env.v0.2.17`；后者与保留的 chunk-fix 环境相比只改变了固定的应用镜像引用。
+切换前已验证候选 Compose 配置。相较前序 chunk-fix 部署，没有数据库迁移、schema、keyring
+或依赖服务配置变更。
+
+仅重建应用服务：
+
+```bash
+sudo docker compose -p sub2api \
+  --env-file /opt/sub2api/.env.v0.2.17 \
+  -f /opt/sub2api/docker-compose.v0.2.17.yml \
+  up -d --no-deps sub2api
+```
+
+PostgreSQL 和 Redis 均未重建。promotion 后，`sub2api`、`sub2api-postgres`、
+`sub2api-redis` 全部为 healthy 且重启次数为零；应用 readiness 返回
+`{"status":"ready"}`。从已批准的 WireGuard 控制 peer 检查时，`/`、`/admin`、
+`/admin/dashboard` 和任意 SPA 路由均返回 `200 text/html`；刻意请求的缺失 asset 返回
+`404 text/plain`，而不是 SPA HTML fallback；`/api/v1/admin/cockpit-summary` 返回成功
+envelope 及 object payload。公共 listener 按设计不暴露 control-plane 路由，因此这些检查
+通过 WireGuard control listener 完成。
+
+相同的 control SPA 与 cockpit API 检查以 10 秒间隔重复 12 次（约两分钟），全部通过；
+三个容器始终 healthy，重启次数均为零。已提供的 JavaScript bundle 也不再包含
+`window.location.reload()` 的过期 chunk 恢复循环。
+
+如需立即仅回滚应用并保持依赖服务不变，执行：
+
+```bash
+sudo docker compose -p sub2api \
+  --env-file /opt/sub2api/.env.v0.2.16-chunkfix-7560df6cc \
+  -f /opt/sub2api/docker-compose.v0.2.16.yml \
+  up -d --no-deps sub2api
+```
+
+该命令恢复保留的本地恢复镜像
+`exapi-chunkfix@sha256:3d4a3377a690df44d5de18ba93dc8077d1e65bc2fa05fb28e0d868f6f4879875`，
+版本为 `0.2.16-chunkfix`、revision 为 `7560df6cc`，不会重建 PostgreSQL 或 Redis。
+
+## 2026-09-05 OPC chunk 加载恢复部署（历史前序）
 
 应用服务已使用提交 `7560df6cc`（`fix(web): prevent stale chunks from triggering reload loops`）
-通过 `--no-deps` 安全重建。PostgreSQL 和 Redis 没有被重建，仍保持健康且重启次数为零。
-当前应用固定到本机 immutable 镜像引用
+通过 `--no-deps` 安全重建。PostgreSQL 和 Redis 没有被重建，且当时保持 healthy、重启次数为零。
+当时应用固定到本机 immutable 镜像引用
 `exapi-chunkfix@sha256:3d4a3377a690df44d5de18ba93dc8077d1e65bc2fa05fb28e0d868f6f4879875`，
 OCI revision 为 `7560df6cc`，版本为 `0.2.16-chunkfix`。受保护的 Compose 环境文件为
-`/opt/sub2api/.env.v0.2.16-chunkfix-7560df6cc`（权限 `0600`）；原 v0.2.16 环境文件保持不变，
-可用于回滚。
+`/opt/sub2api/.env.v0.2.16-chunkfix-7560df6cc`（权限 `0600`）。该镜像现保留为 v0.2.17
+生产 promotion 的即时仅应用回滚目标。
 
 部署后的 allowlisted 运维路径检查结果：`/ready={"status":"ready"}`；SPA 路由返回
 `200 text/html`；缺失的 fingerprinted asset 返回 `404 text/plain` 和 `Asset not found`，
 不再错误返回 `index.html`。实际提供的应用 bundle 已不包含旧的
-`window.location.reload()` chunk 恢复逻辑。该版本仍是本机使用 immutable digest 构建的 OPC
-恢复部署，不是上文签名的 v0.2.17 GHCR artifact；两者 digest 和版本字符串不同。发布
-v0.2.17 不会静默替换此 OPC 容器，promotion release 镜像前必须执行 digest 固定的部署流程。
+`window.location.reload()` chunk 恢复逻辑。该版本是本机使用 immutable digest 构建的恢复部署，
+其 digest 和版本字符串均不同于上文经验证的 v0.2.17 GHCR artifact。它已在 2026-09-07 被
+digest 固定的 v0.2.17 应用 promotion 替代，并仅保留为即时回滚目标。
 
 如需回滚且保持依赖服务不变，可恢复原环境文件，并对版本化 Compose 文件执行
 `--no-deps`：
 
 ```bash
-sudo docker compose --env-file /opt/sub2api/.env.v0.2.16 \
+sudo docker compose -p sub2api \
+  --env-file /opt/sub2api/.env.v0.2.16-chunkfix-7560df6cc \
   -f /opt/sub2api/docker-compose.v0.2.16.yml up -d --no-deps sub2api
 ```
 
